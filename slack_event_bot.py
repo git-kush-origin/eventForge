@@ -1,33 +1,24 @@
-from flask import Flask
-from slackeventsapi import SlackEventAdapter
+from flask import Flask, request, jsonify
 import os
 
-# Replace this with your Slack Signing Secret from your app settings
-SLACK_SIGNING_SECRET = "YOUR_SLACK_SIGNING_SECRET"
+# Get the Slack Signing Secret from an environment variable
+SLACK_SIGNING_SECRET = os.getenv('SLACK_SIGNING_SECRET')
 
-# Initialize Flask app
+if not SLACK_SIGNING_SECRET:
+    raise ValueError("SLACK_SIGNING_SECRET environment variable is not set!")
+
 app = Flask(__name__)
 
-# Initialize Slack Event Adapter
-slack_events_adapter = SlackEventAdapter(SLACK_SIGNING_SECRET, "/slack/events", app)
+@app.route('/slack/events', methods=['POST'])
+def slack_events():
+    # Handle Slack's URL verification challenge
+    data = request.get_json()
+    if 'challenge' in data:
+        return jsonify({'challenge': data['challenge']})
 
-# Example: Listen for 'message' events
-@slack_events_adapter.on("message")
-def handle_message(event_data):
-    message = event_data["event"]
-    print(f"Message received: {message.get('text')}")
+    # Handle other Slack events (e.g., messages, reactions)
+    print(f"Event received: {data}")
+    return '', 200
 
-# Example: Listen for 'reaction_added' events
-@slack_events_adapter.on("reaction_added")
-def handle_reaction(event_data):
-    reaction = event_data["event"]
-    print(f"Reaction added: {reaction.get('reaction')}")
-
-# Error handling
-@slack_events_adapter.on("error")
-def handle_error(error):
-    print(f"Error: {error}")
-
-# Start the Flask server
-if __name__ == "__main__":
+if __name__ == '__main__':
     app.run(port=3000)
