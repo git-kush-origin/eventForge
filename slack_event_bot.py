@@ -11,8 +11,10 @@ app = Flask(__name__)
 
 @app.route('/slack/events', methods=['POST'])
 def slack_events():
-    # Handle Slack's URL verification challenge
+    # Parse the incoming request payload
     data = request.get_json()
+
+    # Handle Slack's URL verification challenge
     if 'challenge' in data:
         return jsonify({'challenge': data['challenge']})
 
