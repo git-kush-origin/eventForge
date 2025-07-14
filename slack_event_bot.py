@@ -7,14 +7,15 @@ SLACK_SIGNING_SECRET = os.getenv('SLACK_SIGNING_SECRET')
 if not SLACK_SIGNING_SECRET:
     raise ValueError("SLACK_SIGNING_SECRET environment variable is not set!")
 
+# Get the PORT environment variable (default to 3000 if not set)
+PORT = int(os.getenv('PORT', 3000))
+
 app = Flask(__name__)
 
 @app.route('/slack/events', methods=['POST'])
 def slack_events():
-    # Parse the incoming request payload
-    data = request.get_json()
-
     # Handle Slack's URL verification challenge
+    data = request.get_json()
     if 'challenge' in data:
         return jsonify({'challenge': data['challenge']})
 
@@ -23,4 +24,5 @@ def slack_events():
     return '', 200
 
 if __name__ == '__main__':
-    app.run(port=3000)
+    # Bind to 0.0.0.0 to make the app accessible externally
+    app.run(host='0.0.0.0', port=PORT)
