@@ -1,2 +1,4 @@
-flask
-slackeventsapi
+slack-sdk
+slack-bolt
+python-dotenv
+google-generativeai
