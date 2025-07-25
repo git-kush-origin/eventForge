@@ -1,13 +1,40 @@
-from .slack_client import ISlackClient, ThreadMetadata, UserGroupMembership
+"""
+Pull-Based Slack Client Implementation
+
+This module implements a pull-based approach to Slack interaction where:
+1. Messages are actively fetched from channels
+2. Threads are retrieved on demand
+3. User and group data is cached for performance
+
+Key features:
+- Rate-limited API calls
+- Efficient data caching
+- Thread activity analysis
+- User mention detection
+
+For detailed documentation, see docs/slack_client_pull.md
+"""
+
 import os
-from slack_sdk.web import WebClient
-from slack_sdk.errors import SlackApiError
-from typing import List, Dict, Optional, Set
-import logging
-from datetime import datetime, timedelta
-from dotenv import load_dotenv
 import time
+import math
+from datetime import datetime, timedelta
+from typing import List, Dict, Set, Optional
+from slack_sdk import WebClient
+from slack_sdk.errors import SlackApiError
+import logging
+from collections import defaultdict
+from .slack_client import (
+    ISlackClient, ThreadMetadata, UserGroupMembership,
+    MAX_EXPECTED_MESSAGES, MAX_EXPECTED_PARTICIPANTS,
+    MAX_DIRECT_MENTIONS, MAX_GROUP_MENTIONS,
+    MAX_REACTIONS_PER_MESSAGE, EXPECTED_MSG_VELOCITY,
+    EXPECTED_THREAD_DEPTH, FREQUENCY_WINDOW_HOURS,
+    BURST_THRESHOLD,
+    calculate_recency_score
+)
 import re
+from llm.thread_analyzer import ThreadAnalyzer
 
 class SlackPullClient(ISlackClient):
     """Pull-based implementation of Slack client using WebClient"""
@@ -23,11 +50,11 @@ class SlackPullClient(ISlackClient):
         self.client = None
         self.logger = logging.getLogger(__name__)
         self._group_membership = None
+        self.analyzer = ThreadAnalyzer()  # LLM-based thread analyzer
         self.initialize()
     
     def initialize(self):
         """Initialize the WebClient and get user ID if not provided"""
-        load_dotenv()
         self.client = WebClient(token=os.environ["SLACK_USER_TOKEN"])
         
         if not self.user_id:
@@ -275,58 +302,139 @@ class SlackPullClient(ISlackClient):
         return timestamp 
 
     def get_thread_metadata(self, thread_messages: List[Dict]) -> ThreadMetadata:
-        """Analyze a thread and return its metadata"""
-        now = time.time()
+        """
+        Analyze thread and generate metadata
         
-        # Sort messages by timestamp
-        sorted_messages = sorted(thread_messages, key=lambda x: float(x.get('ts', 0)))
+        Calculates:
+        1. Message and participant counts
+        2. Mention frequencies and scores
+        3. Activity volume score (normalized logarithmic)
+        4. Recency score (exponential decay)
+        5. Participation score (normalized participant count)
+        6. Channel membership status
+        7. Reaction density score (reactions per message)
+        8. Engagement score (velocity and depth)
+        9. Frequency score (message rate)
         
+        Args:
+            thread_messages: Messages in thread
+            
+        Returns:
+            ThreadMetadata: Thread analysis results
+        """
+        if not thread_messages:
+            return ThreadMetadata(
+                message_count=0,
+                unique_participants=0,
+                direct_mentions=0,
+                group_mentions=0,
+                reaction_count=0,
+                last_reply_ts=0.0,
+                time_since_last_reply=0.0,
+                activity_volume_score=0.0,
+                recency_score=0.0,
+                participation_score=0.0,
+                direct_mention_score=0.0,
+                group_mention_score=0.0,
+                reaction_density_score=0.0,
+                engagement_score=0.0,
+                frequency_score=0.0,
+                is_channel_member=False
+            )
+            
+        # Get channel ID from first message
+        channel_id = thread_messages[0].get('channel', '')
+            
         # Basic counts
         message_count = len(thread_messages)
-        participants = {msg.get('user') for msg in thread_messages if msg.get('user')}
-        unique_participants = len(participants)
-        
-        # Direct and group mentions
-        direct_mentions = 0
-        group_mentions = 0
-        for msg in thread_messages:
-            text = msg.get('text', '')
-            if f"<@{self.user_id}>" in text:
-                direct_mentions += 1
-            if self.is_user_in_group_mention(msg, msg.get('channel', '')):
-                group_mentions += 1
-        
-        # Reactions
+        participants = {msg.get('user') for msg in thread_messages}
+        unique_participant_count = len(participants)
         reaction_count = sum(
-            len(msg.get('reactions', [])) 
+            len(msg.get('reactions', []))
             for msg in thread_messages
         )
         
-        # Last reply timestamp
-        last_reply_ts = float(sorted_messages[-1].get('ts', 0))
-        time_since_last_reply = (now - last_reply_ts) / 3600  # Convert to hours
+        # Calculate activity volume score
+        activity_volume_score = min(1.0, math.log(message_count + 1) / math.log(MAX_EXPECTED_MESSAGES + 1))
         
-        # Message frequencies
-        hour_ago = now - 3600
-        four_hours_ago = now - (3600 * 4)
-        day_ago = now - (3600 * 24)
+        # Calculate participation score
+        participation_score = min(1.0, unique_participant_count / MAX_EXPECTED_PARTICIPANTS)
         
-        hourly_messages = sum(1 for msg in thread_messages 
-                            if float(msg.get('ts', 0)) > hour_ago)
-        four_hour_messages = sum(1 for msg in thread_messages 
-                               if float(msg.get('ts', 0)) > four_hours_ago)
-        daily_messages = sum(1 for msg in thread_messages 
-                           if float(msg.get('ts', 0)) > day_ago)
+        # Calculate reaction density score
+        avg_reactions_per_msg = reaction_count / message_count if message_count > 0 else 0
+        reaction_density_score = min(1.0, avg_reactions_per_msg / MAX_REACTIONS_PER_MESSAGE)
+        
+        # Calculate engagement score
+        timestamps = [float(msg['ts']) for msg in thread_messages]
+        timestamps.sort()
+        
+        # Message velocity component
+        thread_duration_hours = (max(timestamps) - min(timestamps)) / 3600 if len(timestamps) > 1 else 1
+        msgs_per_hour = message_count / thread_duration_hours if thread_duration_hours > 0 else 0
+        velocity_score = min(1.0, msgs_per_hour / EXPECTED_MSG_VELOCITY)
+        
+        # Thread depth component
+        reply_chains = defaultdict(list)
+        for msg in thread_messages:
+            parent_ts = msg.get('thread_ts') or msg.get('ts')
+            reply_chains[parent_ts].append(msg)
+        max_chain_depth = max(len(chain) for chain in reply_chains.values())
+        depth_score = min(1.0, max_chain_depth / EXPECTED_THREAD_DEPTH)
+        
+        # Combined engagement score
+        engagement_score = (0.6 * velocity_score) + (0.4 * depth_score)
+        
+        # Calculate frequency score
+        now = time.time()
+        recent_window = now - (FREQUENCY_WINDOW_HOURS * 3600)
+        recent_msgs = sum(1 for ts in timestamps if ts > recent_window)
+        is_burst = recent_msgs >= BURST_THRESHOLD
+        frequency_score = min(1.0, recent_msgs / BURST_THRESHOLD) if is_burst else (0.5 * recent_msgs / BURST_THRESHOLD)
+        
+        # Mention counts and scores
+        direct_mentions = sum(
+            1 for msg in thread_messages
+            if f"<@{self.user_id}>" in msg.get('text', '')
+        )
+        
+        memberships = self.fetch_user_group_memberships()
+        group_mentions = sum(
+            1 for msg in thread_messages
+            if any(f"<!subteam^{gid}>" in msg.get('text', '')
+                  for gid in memberships.usergroup_ids)
+        )
+        
+        # Calculate mention scores
+        direct_mention_score = min(1.0, direct_mentions / MAX_DIRECT_MENTIONS)
+        group_mention_score = min(1.0, group_mentions / MAX_GROUP_MENTIONS)
+        
+        # Timing calculations
+        last_reply_ts = max(timestamps)
+        now = time.time()
+        hours_since_reply = (now - last_reply_ts) / 3600
+        minutes_since_reply = hours_since_reply * 60
+        
+        # Calculate recency score using exponential decay
+        recency_score = calculate_recency_score(minutes_since_reply)
+        
+        # Check channel membership
+        is_member = channel_id in self._group_membership.channel_ids if self._group_membership else False
         
         return ThreadMetadata(
             message_count=message_count,
-            unique_participants=unique_participants,
+            unique_participants=unique_participant_count,
             direct_mentions=direct_mentions,
             group_mentions=group_mentions,
             reaction_count=reaction_count,
             last_reply_ts=last_reply_ts,
-            hourly_frequency=hourly_messages,
-            four_hour_frequency=four_hour_messages / 4,  # Per hour over 4 hours
-            daily_frequency=daily_messages / 24,  # Per hour over 24 hours
-            time_since_last_reply=time_since_last_reply
+            time_since_last_reply=hours_since_reply,
+            activity_volume_score=activity_volume_score,
+            recency_score=recency_score,
+            participation_score=participation_score,
+            direct_mention_score=direct_mention_score,
+            group_mention_score=group_mention_score,
+            reaction_density_score=reaction_density_score,
+            engagement_score=engagement_score,
+            frequency_score=frequency_score,
+            is_channel_member=is_member
         ) 

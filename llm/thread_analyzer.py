@@ -26,6 +26,12 @@ class ThreadAnalysis:
     my_action: Optional[ActionItem] = None  # Action required from our user
     others_action: Optional[ActionItem] = None  # Action required from other users
     action_status: str = "No action required"  # Quick status about pending actions
+    
+    # Content-based scores (0-1)
+    urgency_score: float = 0.0       # How time-sensitive/urgent the thread is
+    topic_score: float = 0.0         # How important the topic/subject matter is
+    question_score: float = 0.0      # How many direct questions need answers
+    action_score: float = 0.0        # How much action/work is required
 
     def to_json(self, indent: int = 2) -> str:
         """Convert analysis to formatted JSON string"""
@@ -33,14 +39,17 @@ class ThreadAnalysis:
             "key_points": self.key_points,
             "my_action": self.my_action.__dict__ if self.my_action else None,
             "others_action": self.others_action.__dict__ if self.others_action else None,
-            "action_status": self.action_status
+            "action_status": self.action_status,
+            "content_scores": {
+                "urgency": self.urgency_score,
+                "topic": self.topic_score,
+                "question": self.question_score,
+                "action": self.action_score
+            }
         }, indent=indent)
 
 class ThreadAnalyzer:
-    """
-    Analyzes Slack threads using LLMs to provide insights and summaries.
-    Uses Grab's Gemini endpoint for analysis.
-    """
+    """Analyzes Slack threads using LLMs to provide insights and summaries"""
     
     def __init__(self):
         """Initialize the analyzer with Gemini configuration"""
@@ -84,7 +93,7 @@ class ThreadAnalyzer:
         return "\n".join(formatted_messages)
     
     def analyze_thread(self, thread_messages: List[Dict]) -> ThreadAnalysis:
-        """Analyze a thread and provide key points and expectations"""
+        """Analyze a thread and provide key points, expectations, and scores"""
         # Format thread for LLM
         thread_text = self._format_thread_for_llm(thread_messages)
         
@@ -95,11 +104,35 @@ class ThreadAnalyzer:
         
         # Prepare prompt
         prompt = f"""
-        Analyze this Slack thread and identify:
+        Analyze this Slack thread and provide:
         1. List 3-5 key points starting with •
         2. Identify actions required from {identity_context} specifically, including who requested/expects these actions
         3. Identify actions required from other users, including who requested/expects these actions
         4. Provide a one-line status about whether {identity_context} needs to take any action
+        5. Calculate the following scores (0.0 to 1.0):
+           - Urgency Score: How time-sensitive is the thread?
+             • 1.0: Immediate action needed (e.g., "urgent", "ASAP", "blocking", "production issue")
+             • 0.7: Soon but not immediate (e.g., "by tomorrow", "this week")
+             • 0.4: Normal timing (e.g., "when you can", "next sprint")
+             • 0.1: No time pressure
+           
+           - Topic Score: How important is the subject matter?
+             • 1.0: Critical (e.g., production, security, customer impact)
+             • 0.7: Important (e.g., features, bugs, planning)
+             • 0.4: Normal (e.g., updates, discussions)
+             • 0.1: Low priority (e.g., minor issues, FYI)
+           
+           - Question Score: How many direct questions need answers?
+             • 1.0: Multiple urgent questions
+             • 0.7: Several questions
+             • 0.4: One or two questions
+             • 0.0: No questions
+           
+           - Action Score: How much action/work is required?
+             • 1.0: Major work required
+             • 0.7: Significant tasks
+             • 0.4: Minor tasks
+             • 0.0: No action needed
 
         Format your response exactly as follows:
         [Key Points]
@@ -118,6 +151,12 @@ class ThreadAnalyzer:
         [Status]
         • "Action required: <brief description>" OR "No action required" OR "Waiting on others: <brief description>"
 
+        [Scores]
+        • urgency: <0.0-1.0>
+        • topic: <0.0-1.0>
+        • question: <0.0-1.0>
+        • action: <0.0-1.0>
+
         Thread:
         {thread_text}
         """
@@ -131,6 +170,12 @@ class ThreadAnalyzer:
             my_action = None
             others_action = None
             status = "No action required"  # Default status
+            scores = {
+                'urgency': 0.0,
+                'topic': 0.0,
+                'question': 0.0,
+                'action': 0.0
+            }
             current_section = None
             current_action = None
             current_requestors = None
@@ -149,6 +194,8 @@ class ThreadAnalyzer:
                     current_requestors = None
                 elif line.startswith('[Status]'):
                     current_section = 'status'
+                elif line.startswith('[Scores]'):
+                    current_section = 'scores'
                 elif line.startswith('•'):
                     line = line.lstrip('•').strip()
                     if current_section == 'points':
@@ -167,12 +214,26 @@ class ThreadAnalyzer:
                                     others_action = action_item
                     elif current_section == 'status':
                         status = line.strip('"')  # Remove quotes
+                    elif current_section == 'scores':
+                        if ':' in line:
+                            score_type, value = line.split(':', 1)
+                            score_type = score_type.strip()
+                            try:
+                                value = float(value.strip())
+                                if 0 <= value <= 1:
+                                    scores[score_type] = value
+                            except (ValueError, KeyError):
+                                pass
             
             return ThreadAnalysis(
                 key_points=points,
                 my_action=my_action,
                 others_action=others_action,
-                action_status=status
+                action_status=status,
+                urgency_score=scores['urgency'],
+                topic_score=scores['topic'],
+                question_score=scores['question'],
+                action_score=scores['action']
             )
             
         except Exception as e:
@@ -181,5 +242,9 @@ class ThreadAnalyzer:
                 key_points=["Error analyzing thread"],
                 my_action=None,
                 others_action=None,
-                action_status="Error analyzing thread"
+                action_status="Error analyzing thread",
+                urgency_score=0.0,
+                topic_score=0.0,
+                question_score=0.0,
+                action_score=0.0
             ) 
