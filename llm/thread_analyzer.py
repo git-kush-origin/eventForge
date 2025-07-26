@@ -26,7 +26,7 @@ class ThreadAnalysis:
     my_action: Optional[ActionItem] = None  # Action required from our user
     others_action: Optional[ActionItem] = None  # Action required from other users
     action_status: str = "No action required"  # Quick status about pending actions
-    
+
     # Content-based scores (0-1)
     urgency_score: float = 0.0       # How time-sensitive/urgent the thread is
     topic_score: float = 0.0         # How important the topic/subject matter is

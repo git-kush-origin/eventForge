@@ -1,7 +1,7 @@
 from typing import Optional
 from .slack_client import ISlackClient
 from .slack_client_pull_impl import SlackPullClient
-from .slack_client_push_impl import SlackPushClient
+from .slack_client_push_impl import SlackClientPushImpl
 from .message_formatter import IMessageFormatter, DefaultMessageFormatter
 
 class SlackClientFactory:
@@ -22,7 +22,7 @@ class SlackClientFactory:
         if client_type == "pull":
             return SlackPullClient(user_id)
         elif client_type == "push":
-            return SlackPushClient(user_id)
+            return SlackClientPushImpl(user_id)
         else:
             raise ValueError(f"Invalid client type: {client_type}. Must be 'pull' or 'push'")
 

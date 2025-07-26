@@ -19,24 +19,26 @@ from llm.thread_analyzer import ThreadAnalysis
 @dataclass
 class ImportanceFactors:
     """Detailed breakdown of factors contributing to importance score"""
+    # Final Score (0-1)
+    final_score: float           # Overall importance score
+    
     # Activity Importance (0-1)
     activity_score: float          # Combined activity metrics
-    activity_factors: Dict[str, float] = None  # Individual activity factors
     
     # Content Importance (0-1)
     content_score: float           # Combined LLM-based scores
-    content_factors: Dict[str, float] = None   # Individual content factors
     
     # User Context (0-1)
     user_score: float             # Combined user context
-    user_factors: Dict[str, float] = None      # Individual user factors
     
     # Temporal Importance (0-1)
     temporal_score: float         # Combined temporal factors
-    temporal_factors: Dict[str, float] = None  # Individual temporal factors
     
-    # Final Score (0-1)
-    final_score: float           # Overall importance score
+    # Optional detailed factors
+    activity_factors: Dict[str, float] = None  # Individual activity factors
+    content_factors: Dict[str, float] = None   # Individual content factors
+    user_factors: Dict[str, float] = None      # Individual user factors
+    temporal_factors: Dict[str, float] = None  # Individual temporal factors
 
     def to_dict(self) -> Dict:
         """Convert to dictionary for easy serialization"""
@@ -69,18 +71,18 @@ class ImportanceCalculator:
         """Initialize with default weights"""
         # Component weights (should sum to 1)
         self.weights = {
-            "activity": 0.25,     # Activity and engagement
-            "content": 0.30,      # LLM-analyzed content importance
-            "user": 0.25,         # User context and mentions
-            "temporal": 0.20      # Time-based factors
+            "activity": 0.15,     # Activity and engagement
+            "content": 0.6,      # LLM-analyzed content importance
+            "user": 0.1,         # User context and mentions
+            "temporal": 0.15      # Time-based factors
         }
         
         # Subcomponent weights
         self.activity_weights = {
             "volume": 0.3,        # Message volume
-            "participation": 0.3,  # Unique participants
+            "participation": 0.2,  # Unique participants
             "reaction": 0.2,      # Reaction density
-            "engagement": 0.2     # Message velocity and depth
+            "engagement": 0.3     # Message velocity and depth
         }
         
         self.content_weights = {
@@ -192,6 +194,7 @@ class ImportanceCalculator:
         ])
         
         return ImportanceFactors(
+            final_score=final_score,
             activity_score=activity["score"],
             activity_factors=activity["factors"],
             content_score=content["score"],
@@ -199,6 +202,5 @@ class ImportanceCalculator:
             user_score=user["score"],
             user_factors=user["factors"],
             temporal_score=temporal["score"],
-            temporal_factors=temporal["factors"],
-            final_score=final_score
+            temporal_factors=temporal["factors"]
         ) 

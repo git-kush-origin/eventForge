@@ -1,6 +1,25 @@
 # Slack Package Documentation
 
-This package provides a modular interface for interacting with Slack, handling message formatting, and managing client implementations.
+This package provides a modular interface for interacting with Slack, handling message formatting, and managing client implementations. It supports both pull-based (polling) and push-based (Socket Mode) implementations.
+
+## Implementation Approaches
+
+### Pull-Based Implementation
+- Uses active polling to fetch messages
+- Single WebClient with `SLACK_USER_TOKEN`
+- Manual rate limit handling
+- Simpler architecture but higher latency
+- Whitelist-based channel access
+
+### Push-Based Implementation (Socket Mode)
+- Real-time event streaming via Socket Mode
+- Two-token strategy:
+  * Bot App (`SLACK_BOT_TOKEN`): Handles real-time events
+  * User App (`SLACK_USER_TOKEN`): Thread fetching and analysis
+- Built-in rate limiting via Bolt framework
+- Lower latency, event-driven architecture
+- Dynamic channel access
+- Callback-based event handling
 
 ## Thread Metadata and Scoring
 
@@ -79,14 +98,18 @@ classDiagram
         +initialize()
         +fetch_channel_messages()
         +fetch_thread_replies()
+        +make_slack_api_call()
     }
 
     class SlackPushClient["SlackPushClient<br/><a href='../slack_client_push_impl.py'>slack_client_push_impl.py</a>"] {
         -bot_app: App
         -user_app: App
+        -handler: SocketModeHandler
         +initialize()
         +handle_message_events()
+        +register_message_callback()
         +start()
+        +stop()
     }
 
     %% Factory
@@ -106,27 +129,48 @@ classDiagram
     SlackPushClient ..> ThreadMetadata : uses
 ```
 
-## Token Management
-
-The package supports different token strategies for pull and push-based implementations:
+## Token Management and Rate Limiting
 
 ### Pull-Based Client
 - Uses `SLACK_USER_TOKEN`
 - Full access to public channels without joining
-- Rate-limited but higher permission scope
+- Manual rate limit handling:
+  * Retries with delay on rate limit errors
+  * Basic error handling and backoff
+  * Custom retry mechanism
 
 ### Push-Based Client (Two-App Approach)
 - **Bot App**
   - Uses `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN`
   - Handles real-time events via Socket Mode
   - Limited to channels where bot is member
+  - Built-in rate limiting via Bolt framework:
+    * Automatic retries with exponential backoff
+    * Queue management for concurrent requests
+    * Rate limit awareness across calls
   
 - **User App**
   - Uses `SLACK_USER_TOKEN`
   - Handles thread fetching and analysis
   - Full access to public channels
+  - Benefits from Bolt's rate limit handling
 
-This hybrid approach combines real-time capabilities with broad channel access.
+## Event Handling
+
+### Pull-Based Client
+- Active polling of channels
+- Timestamp tracking for new messages
+- Higher latency but predictable
+- Resource usage proportional to polling frequency
+
+### Push-Based Client
+- Real-time event reception via Socket Mode
+- Event callback registration:
+  ```python
+  client.register_message_callback(callback_function)
+  ```
+- Lower latency, event-driven resource usage
+- Automatic reconnection handling
 
 ## Environment Variables
 - `SLACK_USER_TOKEN`: Slack user token for API access
@@ -141,11 +185,20 @@ The package is designed to be used through the factory pattern:
 ```python
 from slack.slack_client_factory import SlackClientFactory
 
-# Create a pull-based client
+# Create a pull-based client (polling)
 client = SlackClientFactory.create_client("pull")
 
-# Create a push-based client
+# Create a push-based client (Socket Mode)
 client = SlackClientFactory.create_client("push")
+
+# For push-based client, register callbacks
+def on_message(channel_id, message):
+    print(f"New message in {channel_id}: {message}")
+    
+client.register_message_callback(on_message)
+
+# Start the Socket Mode handler (push-based only)
+client.start()
 
 # Create a formatter
 formatter = SlackClientFactory.create_formatter()

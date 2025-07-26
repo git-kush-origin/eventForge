@@ -41,7 +41,7 @@ class IMessageFormatter(ABC):
     def format_thread_metadata(self, metadata: ThreadMetadata) -> str:
         """Format thread metadata for display"""
         pass
-        
+    
     @abstractmethod
     def format_thread_analysis(self, analysis: ThreadAnalysis) -> str:
         """Format LLM thread analysis for display"""
@@ -60,7 +60,7 @@ class DefaultMessageFormatter(IMessageFormatter):
     def __init__(self, logger: logging.Logger = None):
         """Initialize formatter with optional logger"""
         self.logger = logger or logging.getLogger(__name__)
-    
+        
     def format_message(self, message: Dict, client: ISlackClient, prefix: str = "") -> str:
         """Format message content with mentions and formatting"""
         try:
@@ -79,7 +79,7 @@ class DefaultMessageFormatter(IMessageFormatter):
         except Exception as e:
             self.logger.error(f"Error formatting message content: {e}")
             return message.get('text', '')
-    
+            
     def format_thread_metadata(self, metadata: ThreadMetadata) -> str:
         """
         Format thread metadata for display
@@ -138,7 +138,7 @@ class DefaultMessageFormatter(IMessageFormatter):
                 if analysis.others_action:
                     lines.append("\nAction Required From Others:")
                     lines.append(f"→ {str(analysis.others_action)}")
-            
+                
             return "\n".join(lines)
         except Exception as e:
             self.logger.error(f"Error formatting thread analysis: {e}")

@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Slack Thread Priority Queue</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        .score-bar {
+            height: 4px;
+            border-radius: 2px;
+        }
+        .score-bar-container {
+            background: #eee;
+            border-radius: 2px;
+        }
+        .animate-refresh {
+            animation: refresh-spin 1s linear;
+        }
+        @keyframes refresh-spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        .external-link {
+            transition: all 0.2s;
+        }
+        .external-link:hover {
+            transform: scale(1.1);
+        }
+        .details-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease-out;
+        }
+        .details-content.expanded {
+            max-height: 2000px;
+            transition: max-height 0.5s ease-in;
+        }
+        .chevron {
+            transition: transform 0.3s ease;
+        }
+        .chevron.expanded {
+            transform: rotate(180deg);
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+    <div class="container mx-auto px-4 py-8">
+        <div class="flex justify-between items-center mb-8">
+            <h1 class="text-3xl font-bold text-gray-800">Slack Thread Priority Queue</h1>
+            <button onclick="refreshThreads(true)" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center">
+                <svg id="refresh-icon" class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                </svg>
+                Refresh
+            </button>
+        </div>
+        
+        <div id="threads-container" class="space-y-4">
+            <!-- Threads will be inserted here -->
+        </div>
+    </div>
+
+    <template id="thread-template">
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <!-- Main Thread Info -->
+            <div class="flex justify-between items-start mb-4">
+                <div class="flex-grow">
+                    <div class="flex items-center space-x-2 mb-2">
+                        <h2 class="text-xl font-semibold text-gray-800">Channel: <span class="channel-name"></span></h2>
+                        <a class="thread-link external-link text-blue-500 hover:text-blue-600" href="#" target="_blank" title="Open thread in Slack">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
+                            </svg>
+                        </a>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <div class="text-sm text-gray-500">Last Updated: <span class="last-updated"></span></div>
+                        <a class="last-message-link external-link text-blue-500 hover:text-blue-600" href="#" target="_blank" title="Go to latest message">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 9l3 3m0 0l-3 3m3-3H8m13 0a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                        </a>
+                    </div>
+                </div>
+                <div class="text-right">
+                    <div class="text-2xl font-bold text-blue-600 mb-1">Score: <span class="importance-score"></span></div>
+                    <div class="text-sm text-gray-500">Messages: <span class="message-count"></span></div>
+                </div>
+            </div>
+
+            <!-- Thread Analysis Summary -->
+            <div class="mb-4">
+                <div class="key-points-list text-gray-600 italic"></div>
+                <p class="action-status text-gray-600 mt-2"></p>
+            </div>
+
+            <!-- Expand/Collapse Button -->
+            <button class="expand-button w-full flex items-center justify-center py-2 text-gray-500 hover:text-gray-700 focus:outline-none border-t" onclick="toggleDetails(this)">
+                <span class="text-sm mr-2">Show Details</span>
+                <svg class="chevron w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                </svg>
+            </button>
+
+            <!-- Collapsible Details Section -->
+            <div class="details-content">
+                <!-- Score Bars -->
+                <div class="space-y-3 my-4">
+                    <div>
+                        <div class="flex justify-between text-sm mb-1">
+                            <span class="text-gray-600">Activity</span>
+                            <span class="activity-score font-medium"></span>
+                        </div>
+                        <div class="score-bar-container">
+                            <div class="score-bar bg-green-500 activity-score-bar"></div>
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <div class="flex justify-between text-sm mb-1">
+                            <span class="text-gray-600">Content</span>
+                            <span class="content-score font-medium"></span>
+                        </div>
+                        <div class="score-bar-container">
+                            <div class="score-bar bg-blue-500 content-score-bar"></div>
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <div class="flex justify-between text-sm mb-1">
+                            <span class="text-gray-600">User Context</span>
+                            <span class="user-score font-medium"></span>
+                        </div>
+                        <div class="score-bar-container">
+                            <div class="score-bar bg-purple-500 user-score-bar"></div>
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <div class="flex justify-between text-sm mb-1">
+                            <span class="text-gray-600">Temporal</span>
+                            <span class="temporal-score font-medium"></span>
+                        </div>
+                        <div class="score-bar-container">
+                            <div class="score-bar bg-yellow-500 temporal-score-bar"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Actions -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <!-- My Actions -->
+                    <div class="my-action-section bg-blue-50 rounded-lg p-3" style="display: none;">
+                        <h4 class="text-sm font-medium text-blue-800 mb-2">My Actions</h4>
+                        <p class="my-action-text text-blue-600"></p>
+                        <p class="text-xs text-blue-500 mt-1">Requested by: <span class="my-action-requestors"></span></p>
+                    </div>
+
+                    <!-- Others' Actions -->
+                    <div class="others-action-section bg-purple-50 rounded-lg p-3" style="display: none;">
+                        <h4 class="text-sm font-medium text-purple-800 mb-2">Others' Actions</h4>
+                        <p class="others-action-text text-purple-600"></p>
+                        <p class="text-xs text-purple-500 mt-1">Requested by: <span class="others-action-requestors"></span></p>
+                    </div>
+                </div>
+
+                <!-- Content Analysis -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
+                    <div class="bg-gray-50 rounded p-2">
+                        <div class="text-xs text-gray-500">Urgency</div>
+                        <div class="urgency-score font-medium text-gray-700"></div>
+                    </div>
+                    <div class="bg-gray-50 rounded p-2">
+                        <div class="text-xs text-gray-500">Topic</div>
+                        <div class="topic-score font-medium text-gray-700"></div>
+                    </div>
+                    <div class="bg-gray-50 rounded p-2">
+                        <div class="text-xs text-gray-500">Questions</div>
+                        <div class="question-score font-medium text-gray-700"></div>
+                    </div>
+                    <div class="bg-gray-50 rounded p-2">
+                        <div class="text-xs text-gray-500">Actions</div>
+                        <div class="action-score font-medium text-gray-700"></div>
+                    </div>
+                </div>
+
+                <!-- Messages -->
+                <div class="space-y-4">
+                    <div>
+                        <div class="flex justify-between items-center mb-1">
+                            <div class="text-sm text-gray-500">First Message (<span class="first-message-time"></span>)</div>
+                            <a class="first-message-link external-link text-blue-500 hover:text-blue-600" href="#" target="_blank" title="Open message in Slack">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
+                                </svg>
+                            </a>
+                        </div>
+                        <div class="first-message-text text-gray-700"></div>
+                    </div>
+                    <div>
+                        <div class="flex justify-between items-center mb-1">
+                            <div class="text-sm text-gray-500">Latest Message (<span class="last-message-time"></span>)</div>
+                            <a class="last-message-link external-link text-blue-500 hover:text-blue-600" href="#" target="_blank" title="Open message in Slack">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
+                                </svg>
+                            </a>
+                        </div>
+                        <div class="last-message-text text-gray-700"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <script>
+        // Auto-refresh every 30 seconds
+        setInterval(() => refreshThreads(false), 30000);
+
+        function toggleDetails(button) {
+            const detailsContent = button.nextElementSibling;
+            const chevron = button.querySelector('.chevron');
+            const isExpanded = detailsContent.classList.contains('expanded');
+            
+            // Toggle classes
+            detailsContent.classList.toggle('expanded');
+            chevron.classList.toggle('expanded');
+            
+            // Update button text
+            button.querySelector('span').textContent = isExpanded ? 'Show Details' : 'Hide Details';
+        }
+
+        function refreshThreads(animate) {
+            if (animate) {
+                document.getElementById('refresh-icon').classList.add('animate-refresh');
+                setTimeout(() => {
+                    document.getElementById('refresh-icon').classList.remove('animate-refresh');
+                }, 1000);
+            }
+
+            fetch('/api/threads')
+                .then(response => response.json())
+                .then(threads => {
+                    const container = document.getElementById('threads-container');
+                    container.innerHTML = '';
+                    
+                    threads.forEach(thread => {
+                        const template = document.getElementById('thread-template');
+                        const clone = template.content.cloneNode(true);
+                        
+                        // Set text content
+                        clone.querySelector('.channel-name').textContent = `#${thread.channel_id}`;
+                        clone.querySelector('.last-updated').textContent = thread.last_updated;
+                        clone.querySelector('.importance-score').textContent = thread.importance_score.toFixed(2);
+                        clone.querySelector('.message-count').textContent = thread.message_count;
+                        
+                        // Set scores and score bars
+                        const scores = {
+                            'activity': thread.activity_score,
+                            'content': thread.content_score,
+                            'user': thread.user_score,
+                            'temporal': thread.temporal_score
+                        };
+                        
+                        Object.entries(scores).forEach(([type, score]) => {
+                            clone.querySelector(`.${type}-score`).textContent = score.toFixed(2);
+                            clone.querySelector(`.${type}-score-bar`).style.width = `${score * 100}%`;
+                        });
+                        
+                        // Set messages and links
+                        clone.querySelector('.first-message-time').textContent = thread.first_message.timestamp;
+                        clone.querySelector('.first-message-text').textContent = thread.first_message.text;
+                        clone.querySelector('.first-message-link').href = thread.first_message.link;
+                        
+                        clone.querySelector('.last-message-time').textContent = thread.last_message.timestamp;
+                        clone.querySelector('.last-message-text').textContent = thread.last_message.text;
+                        clone.querySelector('.last-message-link').href = thread.last_message.link;
+                        
+                        clone.querySelector('.thread-link').href = thread.thread_link;
+
+                        // Set LLM Analysis data
+                        const analysis = thread.analysis;
+                        
+                        // Key Points (in summary)
+                        const keyPointsList = clone.querySelector('.key-points-list');
+                        if (analysis && analysis.key_points && analysis.key_points.length > 0) {
+                            keyPointsList.innerHTML = analysis.key_points
+                                .map(point => `<div class="flex items-start mb-1">
+                                    <span class="text-gray-400 mr-2">•</span>
+                                    <span>${point}</span>
+                                </div>`)
+                                .join('');
+                        } else {
+                            keyPointsList.textContent = 'No analysis available';
+                        }
+
+                        // Action Status (in summary)
+                        if (analysis) {
+                            clone.querySelector('.action-status').textContent = analysis.action_status;
+                        }
+
+                        // My Actions
+                        const myActionSection = clone.querySelector('.my-action-section');
+                        if (analysis && analysis.my_action) {
+                            myActionSection.style.display = 'block';
+                            clone.querySelector('.my-action-text').textContent = analysis.my_action.action;
+                            clone.querySelector('.my-action-requestors').textContent = analysis.my_action.requested_by.join(', ');
+                        }
+
+                        // Others' Actions
+                        const othersActionSection = clone.querySelector('.others-action-section');
+                        if (analysis && analysis.others_action) {
+                            othersActionSection.style.display = 'block';
+                            clone.querySelector('.others-action-text').textContent = analysis.others_action.action;
+                            clone.querySelector('.others-action-requestors').textContent = analysis.others_action.requested_by.join(', ');
+                        }
+
+                        // Content Scores
+                        if (analysis && analysis.scores) {
+                            clone.querySelector('.urgency-score').textContent = analysis.scores.urgency.toFixed(2);
+                            clone.querySelector('.topic-score').textContent = analysis.scores.topic.toFixed(2);
+                            clone.querySelector('.question-score').textContent = analysis.scores.question.toFixed(2);
+                            clone.querySelector('.action-score').textContent = analysis.scores.action.toFixed(2);
+                        }
+                        
+                        container.appendChild(clone);
+                    });
+                })
+                .catch(error => console.error('Error fetching threads:', error));
+        }
+
+        // Initial load
+        refreshThreads(false);
+    </script>
+</body>
+</html> 

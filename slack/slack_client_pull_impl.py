@@ -52,7 +52,7 @@ class SlackPullClient(ISlackClient):
         self._group_membership = None
         self.analyzer = ThreadAnalyzer()  # LLM-based thread analyzer
         self.initialize()
-    
+        
     def initialize(self):
         """Initialize the WebClient and get user ID if not provided"""
         self.client = WebClient(token=os.environ["SLACK_USER_TOKEN"])
@@ -110,15 +110,15 @@ class SlackPullClient(ISlackClient):
         else:
             self.logger.error(f"\n❌ Could not access channel {target_channel_id}")
             return []
-    
+            
     def list_accessible_channels(self) -> List[Dict]:
         """List whitelisted channels accessible to the user"""
         WHITELISTED_CHANNELS = ["C088XPUGDFZ"]  # TODO: Make configurable
         
         try:
             self.logger.info("\n📋 Checking whitelisted channels...")
-            
             channels = []
+            
             for channel_id in WHITELISTED_CHANNELS:
                 try:
                     result = self.make_slack_api_call(
@@ -156,7 +156,7 @@ class SlackPullClient(ISlackClient):
         except Exception as e:
             self.logger.error(f"\n❌ Unexpected error: {str(e)}")
             return []
-    
+        
     def fetch_channel_messages(self, channel_id: str, oldest_ts: str, channel_name: str = "unknown") -> List[Dict]:
         """Fetch messages from a specific channel after the given timestamp"""
         messages = []
@@ -168,7 +168,7 @@ class SlackPullClient(ISlackClient):
             while True:
                 result = self.make_slack_api_call(
                     "conversations_history",
-                    channel=channel_id,
+                channel=channel_id,
                     oldest=oldest_ts,
                     limit=200,
                     cursor=cursor,
@@ -195,11 +195,11 @@ class SlackPullClient(ISlackClient):
             
             self.logger.info(f"\nTotal messages found in #{channel_name}: {len(messages)}")
             return messages
-            
+                
         except SlackApiError as e:
             self.logger.error(f"Error fetching messages from #{channel_name}: {e}")
             return []
-    
+        
     def fetch_thread_replies(self, channel_id: str, thread_ts: str) -> List[Dict]:
         """Fetch all replies in a thread"""
         try:
@@ -273,7 +273,7 @@ class SlackPullClient(ISlackClient):
                 return True
             if "<!here>" in text:
                 return True
-
+                
         # Check for user group mentions
         # Format: <!subteam^TEAM_ID|team-name>
         group_mentions = re.findall(r'<!subteam\^([A-Z0-9]+)(?:\|[^>]+)?>', text)
@@ -293,14 +293,14 @@ class SlackPullClient(ISlackClient):
         )
         
         return direct_mention or group_mention
-    
+        
     def get_timestamp_n_hours_ago(self, hours: int) -> str:
         """Get a Slack timestamp from n hours ago"""
         time_n_hours_ago = datetime.now() - timedelta(hours=hours)
         timestamp = f"{time_n_hours_ago.timestamp():.0f}"
         self.logger.info(f"Looking for messages after: {time_n_hours_ago} (timestamp: {timestamp})")
         return timestamp 
-
+        
     def get_thread_metadata(self, thread_messages: List[Dict]) -> ThreadMetadata:
         """
         Analyze thread and generate metadata
