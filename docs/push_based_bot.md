@@ -190,41 +190,49 @@ Without dedicated state management, the bot faces several challenges in real-tim
 ### Basic vs Optimized Approach
 
 ```mermaid
-graph TD
-    subgraph Basic["Basic Approach"]
-        direction TB
-        M1[New Message] --> F1[Fetch Full History]
-        F1 --> A1[Immediate Analysis]
-        A1 --> P1[Process & Update Queue]
+graph LR
+    subgraph Basic["Without State Management"]
+        direction LR
+        M1[Message 1] --> F1[Fetch History]
+        F1 --> A1[Analyze]
+        A1 --> Q1[Update Queue]
+        M2[Message 2] --> F2[Fetch History]
+        F2 --> A2[Analyze]
+        A2 --> Q2[Update Queue]
+        M3[Message 3] --> F3[Fetch History]
+        F3 --> A3[Analyze]
+        A3 --> Q3[Update Queue]
     end
 
-    subgraph Optimized["Optimized Approach"]
-        direction TB
-        M2[New Message] --> S2[Update State]
-        S2 --> C2{Need History?}
-        C2 -->|Yes| F2[Fetch Delta Only]
-        C2 -->|No| W2[Wait for Review Cycle]
-        F2 --> W2
-        W2 --> B2[Batch Analysis]
-        B2 --> U2[Update Priority Queue]
+    subgraph Optimized["With State Management"]
+        direction LR
+        N1[Message 1] & N2[Message 2] & N3[Message 3] --> S[Update State]
+        S --> B{Review Cycle<br/>30s}
+        B --> F[Single Fetch]
+        F --> A[Batch Analysis]
+        A --> Q[Update Queue]
     end
 
     style Basic fill:#FFE6E6,stroke:#333,stroke-width:2px,color:#000
     style Optimized fill:#E6F3FF,stroke:#333,stroke-width:2px,color:#000
+    linkStyle default stroke:#000,stroke-width:2px
+    classDef default fill:#fff,stroke:#333,stroke-width:2px,color:#000
 ```
 
-The comparison shows:
-1. **Basic Approach**:
-   - Fetches complete history for each message
-   - Analyzes immediately without batching
-   - Higher API and processing costs
-   - More resource intensive
+The comparison highlights key differences:
 
-2. **Optimized Approach**:
-   - Uses state management
-   - Only fetches new messages (delta)
-   - Batches messages for analysis
-   - More efficient resource usage
+1. **Without State Management**
+   - Each message triggers independent processing
+   - Redundant API calls and analysis
+   - Higher costs and resource usage
+   - No message batching
+
+2. **With State Management**
+   - Messages update local state
+   - Batch processing every 30 seconds
+   - Single API call for updates
+   - One analysis for multiple messages
+   - Efficient resource utilization
 
 For detailed implementation of the ThreadStateManager, including data structures, operations, and integration guide, see [Thread State Manager Documentation](thread_state_manager.md).
 
