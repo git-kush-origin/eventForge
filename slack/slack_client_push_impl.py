@@ -239,7 +239,7 @@ class SlackClientPushImpl(ISlackClient):
                 channel_id = event.get("channel")
                 if not channel_id:
                     return
-
+                    
                 # Check if this is a message in a tracked thread
                 thread_ts = event.get('thread_ts')
                 if thread_ts and self.is_thread_tracked(channel_id, thread_ts):

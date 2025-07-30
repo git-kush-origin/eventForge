@@ -52,7 +52,6 @@ class ThreadStateManager:
     def __init__(
         self,
         review_interval: float = 30.0,
-        fetch_cooldown: float = 60.0
     ):
         """
         Initialize the thread state manager.
@@ -63,17 +62,11 @@ class ThreadStateManager:
         """
         self.thread_states: Dict[str, ThreadState] = {}
         self.review_interval = review_interval
-        self.fetch_cooldown = fetch_cooldown
         self.logger = logging.getLogger(__name__)
         
         # Track threads with new messages
         self.threads_with_updates: Set[str] = set()
         self._lock = threading.Lock()
-        
-        # Start worker thread
-        self._stop_worker = False
-        self._worker_thread = threading.Thread(target=self._review_worker, daemon=True)
-        self._worker_thread.start()
 
     def get_thread_key(self, channel_id: str, thread_ts: str) -> str:
         """Generate unique key for thread"""
@@ -87,7 +80,8 @@ class ThreadStateManager:
         1. Thread is not in state
         2. Thread needs history fetch flag is set
         3. Parent message hasn't been seen
-        4. Last fetch was longer than cooldown ago
+        
+        Note: Cooldown check removed as batching is handled by review cycle
         """
         thread_key = self.get_thread_key(channel_id, thread_ts)
         state = self.thread_states.get(thread_key)
@@ -95,11 +89,7 @@ class ThreadStateManager:
         if not state:
             return True
             
-        if state.needs_history_fetch or not state.is_parent_message_seen:
-            time_since_fetch = time.time() - state.last_fetch_time
-            return time_since_fetch > self.fetch_cooldown
-            
-        return False
+        return state.needs_history_fetch or not state.is_parent_message_seen
 
     def update_thread_state(
         self,
@@ -156,6 +146,10 @@ class ThreadStateManager:
                 # Update last message time
                 if sorted_messages:
                     state.last_message_time = float(sorted_messages[-1]['ts'])
+                    
+                    # Add to threads_with_updates if we have messages
+                    # This ensures the thread gets reviewed for prioritization
+                    self.threads_with_updates.add(thread_key)
                 
                 self.logger.info(
                     f"Updated thread {thread_key} state:"
@@ -247,29 +241,9 @@ class ThreadStateManager:
                         state.analysis_state.last_processed_ts = thread_ts
                         state.analysis_state.importance_score = importance_score
 
-    def _review_worker(self) -> None:
-        """Worker thread that periodically checks for threads needing review"""
-        while not self._stop_worker:
-            try:
-                # Sleep for review interval
-                time.sleep(self.review_interval)
-                
-                # Get threads needing review
-                threads = self.get_threads_for_review()
-                if threads:
-                    self.logger.info(f"Found {len(threads)} threads for review")
-                    
-                    # Note: The actual processing will be done by the caller
-                    # This just identifies which threads need processing
-                
-            except Exception as e:
-                self.logger.error(f"Error in review worker: {e}")
-
     def stop(self) -> None:
         """Stop the worker thread"""
-        self._stop_worker = True
-        if self._worker_thread.is_alive():
-            self._worker_thread.join(timeout=5.0)
+        pass  # No longer needed as worker is removed
 
     def get_thread_state(
         self,

@@ -1,10 +1,10 @@
 # Push-Based Slack Bot Documentation
 
-This document outlines the functionality of the push-based Slack bot that analyzes threads in real-time using Socket Mode.
+This document outlines the functionality of the push-based Slack bot that analyzes slack threads in real-time using Socket Mode which uses Slack's Boult format.
 
-## Package Documentation
-- [Slack Package](../slack/docs/slack_client.md): Core messaging and formatting functionality
-- [LLM Package](../llm/docs/thread_analyzer.md): Thread analysis and action identification
+## Problem Statement
+
+A busy user on slack can attes how annoying and overwheling it gets to constantly recieve slack message alerts all day long and the timeless efforts it takes to go through these upcoming stream of events, manually seeking prioritisation of one over the other. This project aims to automate the prioritisation of these threads on behalf of the user, allocating an importance score to each of the slack thread based on content, activitiy and temporal importance of thread, employing LLM in the background.
 
 ## Overview
 
@@ -15,14 +15,69 @@ The bot listens for real-time Slack events and analyzes threads where:
 
 Providing:
 - Periodic thread analysis (every 30 seconds)
-- State-based message tracking
 - Thread importance scoring
 - Priority-based thread queue
 - Real-time web UI visualization
 
+## Package Documentation
+- [Slack Package](../slack/docs/slack_client.md): Core messaging and formatting functionality
+- [LLM Package](../llm/docs/thread_analyzer.md): Thread analysis and action identification
+
+
 ## Architecture
 
-### 1. Message Processing Flow
+### 1. Component Architecture
+This diagram shows the system's main components and their relationships:
+
+```mermaid
+graph TB
+    subgraph Slack["Slack Workspace"]
+        SM["Socket Mode Events Listener<br/><a href='../push_based_bot.py'>push_based_bot.py (120-125)</a>"]
+        Thread1[Thread #1]
+        Thread2[Thread #2] -->|New Messages incoming| SM
+        Thread3[Thread #3]
+    end
+
+    subgraph StateLayer["State Management"]
+        TSM["Thread State Manager<br/><a href='../thread_state_manager.py'>thread_state_manager.py (45-60)</a>
+        (maintains the slack thread states locally
+        for optimised cost effective results)"]
+        TS["Maintain Thread's State<br/><a href='../thread_state_manager.py'>thread_state_manager.py (80-95)</a>"]
+        TU["Update Threads with new messages<br/><a href='../thread_state_manager.py'>thread_state_manager.py (100-115)</a>"]
+    end
+
+    subgraph ProcessingLayer["Processing Layer"]
+        RW["Review Worker<br/><a href='../push_based_bot.py'>push_based_bot.py (150-165)</a>
+        (Batch threads eligible for
+        LLM analysis and process)"]
+        LLM["LLM Analyzer<br/><a href='../llm/thread_analyzer.py'>thread_analyzer.py (30-45)</a>"]
+        IC["Importance Calculator<br/><a href='../importance_calculator.py'>importance_calculator.py (25-40)</a>"]
+    end
+
+    subgraph Storage["Storage & UI"]
+        PQ["Priority Queue<br/><a href='../thread_priority_queue.py'>thread_priority_queue.py (20-35)</a>"]
+        WebUI["Web Interface<br/><a href='../ui/web_ui.py'>web_ui.py (15-30)</a>"]
+    end
+
+    SM --> TSM
+    Thread1 & Thread2 & Thread3 --> SM
+    
+    TSM --> TS
+    TSM --> TU
+    
+    TU --> RW
+    TS --> RW
+    
+    RW --> LLM
+    LLM --> IC
+    IC --> PQ
+    PQ --> WebUI
+
+    style TSM fill:#E6F3FF,stroke:#333,stroke-width:4px
+    style RW fill:#FFF0E6,stroke:#333,stroke-width:4px
+```
+
+### 2. Message Processing Flow
 This sequence diagram shows how messages flow through the system, from reception to analysis:
 
 ```mermaid
@@ -60,53 +115,6 @@ sequenceDiagram
         RW->>TSM: Mark Processed
     end
     PQ->>UI: Refresh View
-```
-
-### 2. Component Architecture
-This diagram shows the system's main components and their relationships:
-
-```mermaid
-graph TB
-    subgraph Slack["Slack Workspace"]
-        SM[Socket Mode Events]
-        Thread1[Thread #1]
-        Thread2[Thread #2]
-        Thread3[Thread #3]
-    end
-
-    subgraph StateLayer["State Management"]
-        TSM[Thread State Manager]
-        TS[Thread States]
-        TU[Thread Updates Set]
-    end
-
-    subgraph ProcessingLayer["Processing Layer"]
-        RW[Review Worker]
-        LLM[LLM Analyzer]
-        IC[Importance Calculator]
-    end
-
-    subgraph Storage["Storage & UI"]
-        PQ[Priority Queue]
-        WebUI[Web Interface]
-    end
-
-    SM --> TSM
-    Thread1 & Thread2 & Thread3 --> SM
-    
-    TSM --> TS
-    TSM --> TU
-    
-    TU --> RW
-    TS --> RW
-    
-    RW --> LLM
-    LLM --> IC
-    IC --> PQ
-    PQ --> WebUI
-
-    style TSM fill:#f9f,stroke:#333,stroke-width:4px
-    style RW fill:#bbf,stroke:#333,stroke-width:4px
 ```
 
 ### 3. Detailed Processing Steps
@@ -155,119 +163,70 @@ Each diagram provides a different perspective:
 2. **Component Architecture**: Illustrates the system's structure and component relationships
 3. **Detailed Processing Steps**: Breaks down the specific steps within each processing phase
 
-## State Management Architecture
+## The Need for Thread State Management
 
-### Components Overview
+### Problem Statement
 
-1. **Thread State Manager**
-   - **Core Functions**:
-     - Maintains thread states
-     - Tracks message updates
-     - Optimizes API calls
-     - Manages periodic reviews
+Without dedicated state management, the bot faces several challenges in real-time thread processing:
 
-   - **State Tracking**:
-     - Thread messages history
-     - Parent message status
-     - Last fetch/analysis times
-     - Analysis results
+1. **Redundant API Calls**
+   - Every new message triggers a full thread history fetch
+   - No tracking of what's already been fetched
+   - Unnecessary load on Slack API
+   - Example: In a high-activity thread with 10 messages/minute, that's 10 redundant API calls fetching the same history
 
-   - **Update Management**:
-     - New message integration
-     - History fetching decisions
-     - Thread review scheduling
+2. **Inefficient LLM Usage**
+   - Each message triggers immediate LLM analysis
+   - No batching of messages for analysis
+   - Higher costs due to frequent LLM API calls
+   - Example: A burst of 5 messages in 10 seconds triggers 5 separate LLM analyses instead of one batch analysis
 
-2. **Review Worker**
-   - **Periodic Processing**:
-     - 30-second review cycles
-     - Batch thread processing
-     - State-based optimizations
+3. **Memory and Processing Overhead**
+   - No message deduplication
+   - Repeated processing of unchanged threads
+   - Growing memory usage with duplicate message storage
+   - Example: A thread with 100 messages gets stored multiple times, once per update
 
-   - **Processing Flow**:
-     - Gets review-ready threads
-     - Fetches needed updates
-     - Triggers LLM analysis
-     - Updates priority queue
+### Basic vs Optimized Approach
 
-3. **Thread States**
-   - **Per-Thread Data**:
-     - Message history
-     - Analysis state
-     - Importance scores
-     - Temporal metrics
+```mermaid
+graph TD
+    subgraph Basic["Basic Approach"]
+        direction TB
+        M1[New Message] --> F1[Fetch Full History]
+        F1 --> A1[Immediate Analysis]
+        A1 --> P1[Process & Update Queue]
+    end
 
-   - **Optimization Features**:
-     - Smart history fetching
-     - Message deduplication
-     - Parent message tracking
+    subgraph Optimized["Optimized Approach"]
+        direction TB
+        M2[New Message] --> S2[Update State]
+        S2 --> C2{Need History?}
+        C2 -->|Yes| F2[Fetch Delta Only]
+        C2 -->|No| W2[Wait for Review Cycle]
+        F2 --> W2
+        W2 --> B2[Batch Analysis]
+        B2 --> U2[Update Priority Queue]
+    end
 
-### Processing Flows
-
-1. **Message Reception**:
-   ```python
-   message -> ThreadStateManager.update_thread_state()
-   -> check history needs
-   -> update state
-   -> mark for review
-   ```
-
-2. **Review Cycle**:
-   ```python
-   every 30s:
-     threads = get_threads_for_review()
-     for thread in threads:
-       if needs_history:
-         fetch_and_update()
-       process_with_llm()
-       update_priority_queue()
-       mark_processed()
-   ```
-
-3. **State Transitions**:
-   ```
-   New Message -> Pending Review -> Processing -> Analyzed -> Ready for Next Update
-   ```
-
-### Benefits
-- Optimized API usage
-- Consistent thread tracking
-- Efficient batch processing
-- Clear state management
-- Reduced redundant operations
-
-## Implementation Details
-
-### ThreadStateManager
-The core state management component:
-```python
-class ThreadStateManager:
-    """
-    Manages thread states and optimizes processing.
-    
-    Features:
-    - Thread state caching
-    - Smart API usage
-    - Periodic batch processing
-    - Message truncation
-    - Worker-based processing
-    """
+    style Basic fill:#FFE6E6,stroke:#333,stroke-width:2px,color:#000
+    style Optimized fill:#E6F3FF,stroke:#333,stroke-width:2px,color:#000
 ```
 
-### Thread State
-Per-thread information:
-```python
-@dataclass
-class ThreadState:
-    thread_id: str              # thread_ts
-    channel_id: str            # Slack channel ID
-    messages: List[Dict]       # All known messages
-    last_fetch_time: float     # Last time thread history was fetched
-    last_analysis_time: float  # Last time thread was analyzed
-    last_message_time: float   # Timestamp of most recent message
-    needs_history_fetch: bool  # Whether thread history needs to be fetched
-    is_parent_message_seen: bool  # Whether we've seen the parent message
-    analysis_state: Optional[ThreadAnalysisState] = None
-```
+The comparison shows:
+1. **Basic Approach**:
+   - Fetches complete history for each message
+   - Analyzes immediately without batching
+   - Higher API and processing costs
+   - More resource intensive
+
+2. **Optimized Approach**:
+   - Uses state management
+   - Only fetches new messages (delta)
+   - Batches messages for analysis
+   - More efficient resource usage
+
+For detailed implementation of the ThreadStateManager, including data structures, operations, and integration guide, see [Thread State Manager Documentation](thread_state_manager.md).
 
 ## Components Used
 
