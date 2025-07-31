@@ -84,7 +84,7 @@ SLACK_APP_TOKEN=xapp-your-app-token
 SLACK_USER_TOKEN=xoxp-your-user-token
 SLACK_USER_ID=your-user-id
 GEMINI_API_KEY=your-gemini-api-key
-GEMINI_API_ENDPOINT=your-gemini-endpoint
+GEMINI_HOST_URL=your-gemini-endpoint
 ```
 
 7. **Run Bot**
