@@ -1,6 +1,6 @@
 # Slack Analyzer Setup Guide
 
-## Two Implementation Options available
+## Two Implementation Options
 
 ### 1. Pull-Based Setup (Simpler, No App Required)
 This approach polls channels periodically instead of using real-time events.
@@ -18,6 +18,7 @@ This approach polls channels periodically instead of using real-time events.
 ```
 SLACK_USER_TOKEN=xoxp-your-user-token
 GEMINI_API_KEY=your-gemini-api-key
+GEMINI_HOST_URL=your-gemini-endpoint
 ```
 3. Run with pull-based implementation:
 ```python
@@ -83,6 +84,7 @@ SLACK_APP_TOKEN=xapp-your-app-token
 SLACK_USER_TOKEN=xoxp-your-user-token
 SLACK_USER_ID=your-user-id
 GEMINI_API_KEY=your-gemini-api-key
+GEMINI_HOST_URL=your-gemini-endpoint
 ```
 
 7. **Run Bot**

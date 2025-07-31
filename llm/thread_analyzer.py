@@ -68,7 +68,7 @@ class ThreadAnalyzer:
         genai.configure(
             api_key=api_key,
             transport="rest",
-            client_options={"api_endpoint": "https://public-api.grabgpt.managed.catwalk-k8s.stg-myteksi.com/google"}
+            client_options={"api_endpoint": os.getenv("GEMINI_HOST_URL")}
         )
         
         # Get the model
