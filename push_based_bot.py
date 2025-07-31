@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from dacite import from_dict
 import re
 
+#TODO: move caching to a separate file
 class UserNameCache:
     def __init__(self, client, cache_ttl=3600):  # TTL in seconds
         self.client = client

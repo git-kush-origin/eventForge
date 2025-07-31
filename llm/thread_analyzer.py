@@ -68,7 +68,7 @@ class ThreadAnalyzer:
         genai.configure(
             api_key=api_key,
             transport="rest",
-            client_options={"api_endpoint": os.getenv("GEMINI_API_ENDPOINT")}
+            client_options={"api_endpoint": os.getenv("GEMINI_HOST_URL")}
         )
         
         # Get the model
