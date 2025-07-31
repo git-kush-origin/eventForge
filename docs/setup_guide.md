@@ -1,6 +1,6 @@
 # Slack Analyzer Setup Guide
 
-## Two Implementation Options available
+## Two Implementation Options
 
 ### 1. Pull-Based Setup (Simpler, No App Required)
 This approach polls channels periodically instead of using real-time events.
