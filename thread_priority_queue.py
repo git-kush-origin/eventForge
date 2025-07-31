@@ -14,8 +14,28 @@ from dataclasses import dataclass
 import heapq
 import time
 import logging
+import subprocess
 from importance_calculator import ImportanceFactors
 from llm.thread_analyzer import ThreadAnalysis
+
+def send_notification(title: str, message: str) -> None:
+    """Send a notification using terminal-notifier
+    
+    Args:
+        title: Notification title
+        message: Notification message
+    """
+    try:
+        subprocess.run([
+            'terminal-notifier',
+            '-title', title,
+            '-message', message,
+            '-sound', 'default',
+            '-open', 'http://127.0.0.1:5000',  # Link to web UI
+            '-actions', 'View'  # Add a "View" action button
+        ])
+    except Exception as e:
+        logging.getLogger(__name__).error(f"Failed to send notification: {e}")
 
 @dataclass
 class ThreadInfo:
@@ -99,11 +119,19 @@ class ThreadPriorityQueue:
                 f"\n• New Score: {importance.final_score:.2f}"
                 f"\n• Score Change: {importance.final_score - old_score:+.2f}"
             )
+            send_notification(
+                "Thread Updated",
+                f"Thread in channel #{channel_id} updated with new score: {importance.final_score:.2f}"
+            )
             self._remove_thread(thread_key)
         else:
             self.logger.info(
                 f"\nAdding new thread from <#{channel_id}>"
                 f"\n• Initial Score: {importance.final_score:.2f}"
+            )
+            send_notification(
+                "New Thread Added",
+                f"New thread in channel #{channel_id} added with score: {importance.final_score:.2f}"
             )
         
         # Add new/updated thread
@@ -119,6 +147,10 @@ class ThreadPriorityQueue:
                 f"\nRemoving lowest priority thread from <#{removed.thread_info.channel_id}>"
                 f"\n• Score: {removed_score:.2f}"
                 f"\n• Reason: Queue over capacity (max: {self.max_size})"
+            )
+            send_notification(
+                "Thread Removed",
+                f"Thread in channel #{removed.thread_info.channel_id} removed due to capacity limit. Score: {removed_score:.2f}"
             )
             del self.thread_map[removed_key]
     
