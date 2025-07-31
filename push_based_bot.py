@@ -11,6 +11,7 @@ Required Environment Variables:
 """
 import os
 import logging
+import time
 from dotenv import load_dotenv
 from slack.slack_client_push_impl import SlackClientPushImpl
 from slack.message_formatter import DefaultMessageFormatter
@@ -21,6 +22,47 @@ from thread_state_manager import ThreadStateManager
 from ui.web_ui import run_web_ui, set_priority_queue
 from datetime import datetime
 import threading
+from dataclasses import dataclass
+from dacite import from_dict
+import re
+
+class UserNameCache:
+    def __init__(self, client, cache_ttl=3600):  # TTL in seconds
+        self.client = client
+        self.cache = {}
+        self.cache_ttl = cache_ttl
+        self.last_update = {}
+    
+    def get_user_name(self, user_id):
+        current_time = time.time()
+        # Check if we have a cached value that hasn't expired
+        if user_id in self.cache:
+            if current_time - self.last_update[user_id] < self.cache_ttl:
+                return self.cache[user_id]
+        try:
+            # Fetch from Slack API using the user_app client
+            user_info = self.client.user_app.client.users_info(user=user_id)
+            user_name = user_info["user"]["profile"]["display_name"]
+            if not user_name:
+                user_name = user_info["user"]["real_name"]
+            # Update cache
+            self.cache[user_id] = user_name
+            self.last_update[user_id] = current_time
+            return user_name
+        except Exception as e:
+            print(f"Error fetching user info for {user_id}: {e}")
+            return f"<@{user_id}>"  # Return original format on error
+
+def format_message_with_names_cached(message_text, user_cache):
+    # Match the entire mention pattern including any special characters
+    user_mentions = re.findall(r'<@[A-Z0-9]+>', message_text)
+    formatted_text = message_text
+    for mention in user_mentions:
+        # Extract user ID by removing <@ and >
+        user_id = mention[2:-1]
+        user_name = user_cache.get_user_name(user_id)
+        formatted_text = formatted_text.replace(mention, f'@{user_name}')
+    return formatted_text
 
 # Load environment variables
 load_dotenv()
@@ -41,7 +83,37 @@ def process_thread_analysis(
         metadata = client.get_thread_metadata(messages)
         
         # Get LLM analysis
+        logger.info("\nStarting LLM analysis...")
         analysis = analyzer.analyze_thread(messages)
+        logger.info("LLM analysis completed")
+        
+        # Format user mentions in analysis results
+        user_cache = UserNameCache(client)
+        if analysis.key_points:
+            analysis.key_points = [format_message_with_names_cached(point, user_cache)
+                                 for point in analysis.key_points]
+        
+        # Format my_action if it exists
+        if analysis.my_action:
+            analysis.my_action.action = format_message_with_names_cached(
+                analysis.my_action.action, user_cache
+            )
+            if analysis.my_action.requested_by:
+                analysis.my_action.requested_by = [
+                    format_message_with_names_cached(name, user_cache)
+                    for name in analysis.my_action.requested_by
+                ]
+        
+        # Format others_action if it exists
+        if analysis.others_action:
+            analysis.others_action.action = format_message_with_names_cached(
+                analysis.others_action.action, user_cache
+            )
+            if analysis.others_action.requested_by:
+                analysis.others_action.requested_by = [
+                    format_message_with_names_cached(name, user_cache)
+                    for name in analysis.others_action.requested_by
+                ]
         
         # Calculate importance score
         importance = calculator.calculate_importance(metadata, analysis)
@@ -83,6 +155,7 @@ def review_threads(
         try:
             # Get threads needing review
             threads = state_manager.get_threads_for_review()
+            logger.info(f"\nChecking for threads to review...")
             
             if threads:
                 logger.info(f"\n📊 Reviewing {len(threads)} threads")

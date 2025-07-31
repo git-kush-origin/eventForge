@@ -98,8 +98,8 @@ class ThreadAnalyzer:
         thread_text = self._format_thread_for_llm(thread_messages)
         
         # Prepare context about user/group
-        user_context = f"USER_ID: {self.user_id}" if self.user_id else ""
-        group_context = f"GROUP_ID: {self.user_group}" if self.user_group else ""
+        user_context = f"<@{self.user_id}>" if self.user_id else ""
+        group_context = f"<@{self.user_group}>" if self.user_group else ""
         identity_context = " and ".join(filter(None, [user_context, group_context]))
         
         # Prepare prompt
@@ -109,6 +109,9 @@ class ThreadAnalyzer:
         2. Identify actions required from {identity_context} specifically, including who requested/expects these actions
         3. Identify actions required from other users, including who requested/expects these actions
         4. Provide a one-line status about whether {identity_context} needs to take any action
+
+        IMPORTANT: Always maintain Slack's user mention format (<@U123...>) in your responses. Do not convert user IDs to any other format.
+
         5. Calculate the following scores (0.0 to 1.0):
            - Urgency Score: How time-sensitive is the thread?
              • 1.0: Immediate action needed (e.g., "urgent", "ASAP", "blocking", "production issue")
@@ -136,17 +139,17 @@ class ThreadAnalyzer:
 
         Format your response exactly as follows:
         [Key Points]
-        • point 1
+        • point 1 (with user mentions like <@U123ABC>)
         • point 2
         • point 3
 
         [My Actions]
-        • action: <action description>
-        • requested_by: <@user1>, <@user2>
+        • action: <action description with user mentions like <@U123ABC>>
+        • requested_by: <@U123ABC>, <@U456DEF>
 
         [Others Actions]
-        • action: <action description>
-        • requested_by: <@user1>, <@user2>
+        • action: <action description with user mentions like <@U123ABC>>
+        • requested_by: <@U123ABC>, <@U456DEF>
 
         [Status]
         • "Action required: <brief description>" OR "No action required" OR "Waiting on others: <brief description>"

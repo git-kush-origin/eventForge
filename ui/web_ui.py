@@ -157,5 +157,10 @@ def run_web_ui(host: str = '127.0.0.1', port: int = 5000):
     browser_thread.daemon = True
     browser_thread.start()
     
+    # Disable Flask access logging
+    import logging
+    log = logging.getLogger('werkzeug')
+    log.disabled = True
+    
     # Run Flask app
     app.run(host=host, port=port, debug=False) 
