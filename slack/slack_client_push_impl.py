@@ -51,6 +51,8 @@ class SlackClientPushImpl(ISlackClient):
         self.user_id = user_id
         self.bot_app = None  # Bolt app with bot token for Socket Mode events
         self.user_app = None  # Bolt app with user token for data access
+        self.web_user_client = None
+
         self.handler = None   # Socket Mode handler
         self.logger = logging.getLogger(__name__)
         self._group_membership = None  # Cache of user's group memberships
@@ -200,6 +202,9 @@ class SlackClientPushImpl(ISlackClient):
         # User app for data access (threads, user info, etc.)
         self.user_app = App(token=os.environ["SLACK_USER_TOKEN"])
         self.logger.info("✅ User app initialized")
+
+        self.web_user_client = WebClient(token=os.environ["SLACK_USER_TOKEN"])
+        self.logger.info("✅ Web user client initialized")
         
         # Get user ID from environment if not provided
         if not self.user_id:
@@ -335,8 +340,16 @@ class SlackClientPushImpl(ISlackClient):
             )
             return result.get('messages', [])
         except Exception as e:
-            self.logger.error(f"Error fetching thread replies: {e}")
-            return []
+            self.logger.error(f"Error fetching thread replies with user app: {e}")
+            try:
+                result = self.web_user_client.conversations_replies(
+                    channel=channel_id,
+                    ts=thread_ts
+                )
+                return result.get('messages', [])
+            except Exception as e2:
+                self.logger.error(f"Error fetching thread replies with WebClient: {e2}")
+                return []
     
     def is_user_mentioned(self, message: Dict) -> bool:
         """

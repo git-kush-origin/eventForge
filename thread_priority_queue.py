@@ -17,6 +17,7 @@ import logging
 import subprocess
 from importance_calculator import ImportanceFactors
 from llm.thread_analyzer import ThreadAnalysis
+from pync import Notifier
 
 def send_notification(title: str, message: str) -> None:
     """Send a notification using terminal-notifier
@@ -26,14 +27,7 @@ def send_notification(title: str, message: str) -> None:
         message: Notification message
     """
     try:
-        subprocess.run([
-            'terminal-notifier',
-            '-title', title,
-            '-message', message,
-            '-sound', 'default',
-            '-open', 'http://127.0.0.1:5000',  # Link to web UI
-            '-actions', 'View'  # Add a "View" action button
-        ])
+       Notifier.notify(message, title=title, open='http://127.0.0.1:5000/')
     except Exception as e:
         logging.getLogger(__name__).error(f"Failed to send notification: {e}")
 
